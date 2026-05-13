@@ -69,11 +69,12 @@ Supports any nesting depth. Bounds can be braced `{0}` or unbraced `0`. Use `d{v
 ## Summations
 
 ```
-\sum_{n=0}^{5} n^2                → 55
-\sum_{i=1}^{3} \sum_{j=1}^{2} i*j → 18
+\sum_{n=0}^{5} n^2                            → 55
+\sum_{i=1}^{3} \sum_{j=1}^{2} i*j            → 18
+\sum^{3}_{i=1} 3i                            → 18  (reversed bounds also work)
 ```
 
-Supports any nesting depth. The variable is specified in the subscript with `{var=start}` and the upper bound in the superscript.
+Supports any nesting depth. Both `_lower^upper` and `^upper_lower` orderings are accepted.
 
 ## Numerical Derivatives
 

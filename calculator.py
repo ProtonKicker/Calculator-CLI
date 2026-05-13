@@ -468,7 +468,12 @@ def solve_multi_integral(expr):
 # ── Multi-Sum Solver ──────────────────────────────────────────────────────────
 
 _SUM_SEG = re.compile(
-    r'\\sum\s*_\s*\{?([a-zA-Z])\s*=\s*([^}]+)\}?\s*\^\s*\{?([^\s}]+)\}?'
+    r'\\sum\s*'
+    r'(?:'
+    r'_\s*\{?([a-zA-Z])\s*=\s*([^\s_}^]+)\}?(?:\s*\^\s*\{?([^\s}_^]+)\}?)?'   # _var=start ^end
+    r'|'
+    r'\^\s*\{?([^\s}_^]+)\}?(?:\s*_\s*\{?([a-zA-Z])\s*=\s*([^\s_}^]+)\}?)?'   # ^end _var=start
+    r')?'
 )
 
 
@@ -483,7 +488,12 @@ def _parse_multi_sum(expr):
         return None
     last_end = sum_matches[-1].end()
     summand = expr[last_end:].strip()
-    sums = [(m.group(1), m.group(2), m.group(3)) for m in sum_matches]
+    sums = []
+    for m in sum_matches:
+        if m.group(1) is not None:
+            sums.append((m.group(1), m.group(2), m.group(3)))
+        else:
+            sums.append((m.group(5), m.group(6), m.group(4)))
     return sums, summand
 
 
@@ -793,7 +803,9 @@ def _format_root(r: float | complex) -> str:
         i_str = _format_float(abs(imag))
         return f"{r_str}+{i_str}{_imag_unit}" if imag > 0 else f"{r_str}-{i_str}{_imag_unit}"
     rnd = round(r)
-    return str(rnd) if abs(r - rnd) < 1e-6 else _format_float(r)
+    if abs(r) >= 1e-7 and abs(r - rnd) < 1e-10 * max(1.0, abs(r)):
+        return str(rnd)
+    return _format_float(r)
 
 
 def solve_equation(expr: str) -> str:
@@ -851,6 +863,54 @@ def format_result(result: float | complex | str) -> str:
         i_str = _format_float(abs(i))
         return f"{r_str}+{i_str}{_imag_unit}" if i > 0 else f"{r_str}-{i_str}{_imag_unit}"
     return _format_float(result)
+
+
+_INEQ_OP = re.compile(r'(.+?)\s*\\(ne|geq|leq)\s*(.+)')
+
+_INEQ_SYMBOLS = {'ne': '≠', 'geq': '≥', 'leq': '≤'}
+
+
+def solve_inequality(expr):
+    m = _INEQ_OP.match(expr.strip())
+    if not m:
+        return None
+    lhs_raw, op, rhs_raw = m.group(1).strip(), m.group(2), m.group(3).strip()
+    full = lhs_raw + ' ' + rhs_raw
+    var = _find_variable(full)
+    if var is None:
+        return "Error: Could not identify a single variable"
+    lhs, _ = preprocess(lhs_raw)
+    rhs, _ = preprocess(rhs_raw)
+
+    def f(val):
+        sd = _build_safe_dict(var, val)
+        try:
+            return eval(lhs, {"__builtins__": {}}, sd) - eval(rhs, {"__builtins__": {}}, sd)
+        except Exception:
+            return float('nan')
+
+    roots = _find_roots(f)
+    roots = [r for r in roots if isinstance(r, (int, float)) and abs(r) < 1000]
+    if not roots:
+        return f"Error: No solution found for '{var}'"
+
+    r = roots[0]
+    if op == 'ne':
+        return f"{var} ≠ {_format_root(r)}"
+
+    try:
+        test = f(r + 1.0)
+    except Exception:
+        try:
+            test = f(r - 1.0)
+        except Exception:
+            test = 0
+    f_pos = bool(test > 0) if not isinstance(test, complex) else True
+
+    if op == 'geq':
+        return f"{var} ≥ {_format_root(r)}" if f_pos else f"{var} ≤ {_format_root(r)}"
+    else:
+        return f"{var} ≤ {_format_root(r)}" if f_pos else f"{var} ≥ {_format_root(r)}"
 
 
 def print_help():
@@ -988,6 +1048,13 @@ def main():
                 print(f"⇒ {expr} = {formatted}\n")
                 continue
             # Fall through to normal processing
+
+        # Inequality solver
+        if re.search(r'\\ne|\\geq|\\leq', expr):
+            result = solve_inequality(expr)
+            if result:
+                print(f"⇒ {result}\n")
+                continue
 
         # Equation solving if '=' is present
         if "=" in expr:
