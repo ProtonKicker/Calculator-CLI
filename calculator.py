@@ -2,6 +2,7 @@ import cmath
 import math
 import re
 import sys
+from fractions import Fraction
 
 _imag_unit = "j"
 _show_imag_roots = True
@@ -217,10 +218,13 @@ def _latex_to_display_inner(expr: str) -> str:
                 rad_end = _find_matching_brace(expr, rad_start)
                 if rad_end != -1:
                     rad = _latex_to_display_inner(expr[rad_start+1:rad_end])
-                    root_map = {"2": "√", "3": "∛", "4": "∜"}
-                    symbol = root_map.get(idx, f"√[{idx}]")
                     rad_str = rad if _is_simple(rad) else f"({rad})"
-                    replacement = f"{symbol}{rad_str}"
+                    root_map = {"2": "√", "3": "∛", "4": "∜"}
+                    symbol = root_map.get(idx)
+                    if symbol:
+                        replacement = f"{symbol}{rad_str}"
+                    else:
+                        replacement = f"{rad_str}^(1/{idx})"
                     expr = expr[:i] + replacement + expr[rad_end+1:]
                     return _latex_to_display_inner(expr)
         i += 1
@@ -286,6 +290,34 @@ def latex_to_display(expr: str) -> str:
     expr = expr.replace(r'\(', '(').replace(r'\)', ')')
     expr = expr.replace(r'\[', '(').replace(r'\]', ')')
     return _latex_to_display_inner(expr)
+
+
+_ROOT_RE = re.compile(r'\(?([a-zA-Z_]\w*|\d+(?:\.\d+)?)\)?\*\*\(1/(\d+)\)')
+
+
+def detect_root(cleaned: str) -> str | None:
+    m = _ROOT_RE.search(cleaned)
+    if m:
+        base = m.group(1)
+        n = int(m.group(2))
+        if n == 2:
+            return f"√{base}"
+        elif n == 3:
+            return f"∛{base}"
+        elif n == 4:
+            return f"∜{base}"
+        else:
+            return f"{base}^(1/{n})"
+    return None
+
+
+def to_fraction(x: float) -> str | None:
+    if abs(x - round(x)) < 1e-12:
+        return None
+    f = Fraction(x).limit_denominator(10000)
+    if f.denominator != 1 and abs(float(f) - x) < 1e-10:
+        return f"{f.numerator}/{f.denominator}"
+    return None
 
 
 def preprocess(expr: str) -> tuple[str, list[str]]:
@@ -623,15 +655,34 @@ def main():
         result = evaluate(cleaned)
         formatted = format_result(result)
 
-        # Show result with exact form for non-integer results
+        # Whole number -> just show number
         if isinstance(result, (int, float)) and abs(result - round(result)) < 1e-12:
             print(f"⇒ {formatted}\n")
+            continue
+
+        # Determine true value display
+        true_val = None
+
+        # 1. LaTeX display (for \sqrt, \frac, etc.)
+        if '\\' in expr:
+            true_val = latex_to_display(expr)
+
+        # 2. Root pattern (for num^(1/n) notation)
+        if true_val is None:
+            true_val = detect_root(cleaned)
+
+        # 3. Fraction conversion (for rational results)
+        if true_val is None and isinstance(result, (int, float)):
+            true_val = to_fraction(result)
+
+        # 4. Fallback to latex_to_display (original or cleaned)
+        if true_val is None:
+            true_val = latex_to_display(expr)
+
+        if true_val != formatted:
+            print(f"⇒ {true_val} = {formatted}\n")
         else:
-            display = latex_to_display(expr)
-            if display != formatted:
-                print(f"⇒ {display} = {formatted}\n")
-            else:
-                print(f"⇒ {formatted}\n")
+            print(f"⇒ {formatted}\n")
 
 
 if __name__ == "__main__":
