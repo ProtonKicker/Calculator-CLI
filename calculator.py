@@ -865,16 +865,18 @@ def format_result(result: float | complex | str) -> str:
     return _format_float(result)
 
 
-_INEQ_OP = re.compile(r'(.+?)\s*\\(ne|geq|leq)\s*(.+)')
+_INEQ_OP = re.compile(r'(.+?)\s*(?:\\(ne|geq|leq)|(>|<))\s*(.+)')
 
-_INEQ_SYMBOLS = {'ne': '≠', 'geq': '≥', 'leq': '≤'}
+_INEQ_SYMBOLS = {'ne': '≠', 'geq': '≥', 'leq': '≤', '>': '>', '<': '<'}
 
 
 def solve_inequality(expr):
     m = _INEQ_OP.match(expr.strip())
     if not m:
         return None
-    lhs_raw, op, rhs_raw = m.group(1).strip(), m.group(2), m.group(3).strip()
+    lhs_raw = m.group(1).strip()
+    op = m.group(2) or m.group(3)
+    rhs_raw = m.group(4).strip()
     full = lhs_raw + ' ' + rhs_raw
     var = _find_variable(full)
     if var is None:
@@ -907,10 +909,14 @@ def solve_inequality(expr):
             test = 0
     f_pos = bool(test > 0) if not isinstance(test, complex) else True
 
-    if op == 'geq':
-        return f"{var} ≥ {_format_root(r)}" if f_pos else f"{var} ≤ {_format_root(r)}"
+    if op in ('geq', '>'):
+        sym_ge = '\u2265' if op == 'geq' else '>'
+        sym_le = '\u2264' if op == 'geq' else '<'
+        return f"{var} {sym_ge} {_format_root(r)}" if f_pos else f"{var} {sym_le} {_format_root(r)}"
     else:
-        return f"{var} ≤ {_format_root(r)}" if f_pos else f"{var} ≥ {_format_root(r)}"
+        sym_le = '\u2264' if op == 'leq' else '<'
+        sym_ge = '\u2265' if op == 'leq' else '>'
+        return f"{var} {sym_le} {_format_root(r)}" if f_pos else f"{var} {sym_ge} {_format_root(r)}"
 
 
 def print_help():
@@ -1050,7 +1056,7 @@ def main():
             # Fall through to normal processing
 
         # Inequality solver
-        if re.search(r'\\ne|\\geq|\\leq', expr):
+        if re.search(r'\\ne|\\geq|\\leq|>|<', expr):
             result = solve_inequality(expr)
             if result:
                 print(f"⇒ {result}\n")
