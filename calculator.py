@@ -1,8 +1,13 @@
+import cmath
 import math
 import re
 import sys
 
 _imag_unit = "j"
+_show_imag_roots = True
+_deg_mode = False
+_DEG = math.pi / 180
+_RAD = 180 / math.pi
 
 
 def _sqrt(x: float) -> float | complex:
@@ -208,49 +213,8 @@ def preprocess(expr: str) -> tuple[str, list[str]]:
 
 def evaluate(expr: str) -> float | str:
     """Evaluate a math expression safely."""
-    # Create a safe namespace with math functions
-    safe_dict = {
-        "sin": math.sin,
-        "cos": math.cos,
-        "tan": math.tan,
-        "asin": math.asin,
-        "acos": math.acos,
-        "atan": math.atan,
-        "sqrt": _sqrt,
-        "log": math.log,
-        "log2": math.log2,
-        "log10": math.log10,
-        "exp": math.exp,
-        "ln": math.log,
-        "lg": math.log10,
-        "abs": abs,
-        "ceil": math.ceil,
-        "floor": math.floor,
-        "factorial": math.factorial,
-        "pow": pow,
-        "e": math.e,
-        "tau": math.tau,
-        # Physics & Chemistry constants (exact 2019 SI / CODATA 2018)
-        "g": 9.80665,
-        "c": 299792458,
-        "G": 6.67430e-11,
-        "h": 6.62607015e-34,
-        "k": 1.380649e-23,
-        "NA": 6.02214076e23,
-        "R": 8.31446261815324,
-        "F": 96485.33212331001,
-        "atm": 101325,
-        "Vm": 22.413969545014137,
-        "mu0": 1.25663706212e-6,
-        "eps0": 8.8541878128e-12,
-        "epsilon0": 8.8541878128e-12,
-        "varepsilon0": 8.8541878128e-12,
-        # Imaginary unit
-        "j": 1j,
-    }
-
     try:
-        result = eval(expr, {"__builtins__": {}}, safe_dict)
+        result = eval(expr, {"__builtins__": {}}, _build_safe_dict())
         return result
     except Exception as e:
         return f"Error: {e}"
@@ -260,6 +224,167 @@ def _format_float(x: float | int) -> str:
     """Format a number, using scientific notation for extreme values."""
     s = f"{x:.10g}"
     return "0" if s == "-0" else s
+
+
+_CONSTANT_NAMES = {
+    "e", "g", "c", "h", "k", "j",
+    "pi", "tau",
+    "sin", "cos", "tan", "asin", "acos", "atan",
+    "sqrt", "log", "log2", "log10", "exp", "ln", "lg",
+    "abs", "ceil", "floor", "factorial", "pow",
+}
+
+def _find_variable(expr: str) -> str | None:
+    names = set(re.findall(r'[a-z]\w*', expr))
+    names -= _CONSTANT_NAMES
+    names = {n for n in names if n.islower()}
+    return names.pop() if len(names) == 1 else None
+
+
+def _finite(x):
+    if isinstance(x, complex):
+        return math.isfinite(x.real) and math.isfinite(x.imag)
+    return isinstance(x, (int, float)) and math.isfinite(x)
+
+
+def _secant_from(f, guess):
+    x0, x1 = guess, guess + 0.1 if guess == 0 else guess * 1.1
+    for _ in range(500):
+        f0, f1 = f(x0), f(x1)
+        if not (_finite(f0) and _finite(f1)):
+            break
+        if abs(f1) < 1e-13:
+            return x1
+        if abs(f1 - f0) < 1e-15:
+            break
+        x2 = x1 - f1 * (x1 - x0) / (f1 - f0)
+        if abs(x2 - x1) < 1e-12:
+            if abs(f1) < 1e-8:
+                return x2
+            break
+        x0, x1 = x1, x2
+    return None
+
+
+def _find_roots(f):
+    real_guesses = [0, 1, -1, 2, -2, 5, -5, 10, -10, 100, -100]
+    complex_guesses = [
+        1j, -1j,
+        0.5+0.866j, -0.5+0.866j, -0.5-0.866j, 0.5-0.866j,
+    ]
+    roots = []
+    for g in real_guesses + complex_guesses:
+        r = _secant_from(f, g)
+        if r is None:
+            continue
+        if not any(abs(r - e) < 1e-6 for e in roots):
+            roots.append(r)
+    roots.sort(key=lambda r: (r.real if isinstance(r, complex) else r,
+                               abs(r.imag) if isinstance(r, complex) else 0))
+    return roots
+
+
+def _build_safe_dict(var_name: str | None = None, var_val: float | complex | None = None) -> dict:
+    use_cmath = isinstance(var_val, complex)
+    d = {
+        "abs": abs, "pow": pow,
+        "e": math.e, "tau": math.tau,
+        "g": 9.80665, "c": 299792458, "G": 6.67430e-11,
+        "h": 6.62607015e-34, "k": 1.380649e-23,
+        "NA": 6.02214076e23, "R": 8.31446261815324, "F": 96485.33212331001,
+        "atm": 101325, "Vm": 22.413969545014137,
+        "mu0": 1.25663706212e-6, "eps0": 8.8541878128e-12,
+        "epsilon0": 8.8541878128e-12, "varepsilon0": 8.8541878128e-12,
+        "j": 1j,
+    }
+    if use_cmath:
+        d.update({
+            "sin": cmath.sin, "cos": cmath.cos, "tan": cmath.tan,
+            "asin": cmath.asin, "acos": cmath.acos, "atan": cmath.atan,
+            "sqrt": cmath.sqrt,
+            "log": cmath.log, "log2": lambda z: cmath.log(z, 2),
+            "log10": lambda z: cmath.log(z, 10),
+            "exp": cmath.exp, "ln": cmath.log, "lg": lambda z: cmath.log(z, 10),
+        })
+    else:
+        d.update({
+            "sin": math.sin, "cos": math.cos, "tan": math.tan,
+            "asin": math.asin, "acos": math.acos, "atan": math.atan,
+            "sqrt": _sqrt,
+            "log": math.log, "log2": math.log2, "log10": math.log10,
+            "exp": math.exp, "ln": math.log, "lg": math.log10,
+            "ceil": math.ceil, "floor": math.floor, "factorial": math.factorial,
+        })
+    if _deg_mode:
+        m = cmath if use_cmath else math
+        d.update({
+            "sin": lambda x: m.sin(x * _DEG),
+            "cos": lambda x: m.cos(x * _DEG),
+            "tan": lambda x: m.tan(x * _DEG),
+            "asin": lambda x: m.asin(x) * _RAD,
+            "acos": lambda x: m.acos(x) * _RAD,
+            "atan": lambda x: m.atan(x) * _RAD,
+        })
+    if var_name is not None and var_val is not None:
+        d[var_name] = var_val
+    return d
+
+
+def _format_root(r: float | complex) -> str:
+    if isinstance(r, complex):
+        if abs(r.imag) < 1e-12:
+            val = r.real
+            rnd = round(val)
+            return str(rnd) if abs(val - rnd) < 1e-6 else _format_float(val)
+        real, imag = r.real, r.imag
+        if abs(real) < 1e-12:
+            real = 0.0
+        if abs(imag) < 1e-12:
+            imag = 0.0
+        if real == 0:
+            return f"{_format_float(imag)}{_imag_unit}"
+        r_str = _format_float(real)
+        i_str = _format_float(abs(imag))
+        return f"{r_str}+{i_str}{_imag_unit}" if imag > 0 else f"{r_str}-{i_str}{_imag_unit}"
+    rnd = round(r)
+    return str(rnd) if abs(r - rnd) < 1e-6 else _format_float(r)
+
+
+def solve_equation(expr: str) -> str:
+    parts = expr.split("=")
+    if len(parts) != 2:
+        return "Error: Equation must have exactly one '='"
+
+    lhs_raw, rhs_raw = parts[0].strip(), parts[1].strip()
+
+    var = _find_variable(lhs_raw + " " + rhs_raw)
+    if var is None:
+        return "Error: Could not identify a single variable to solve for"
+
+    lhs, _ = preprocess(lhs_raw)
+    rhs, _ = preprocess(rhs_raw)
+
+    def f(val):
+        sd = _build_safe_dict(var, val)
+        try:
+            return eval(lhs, {"__builtins__": {}}, sd) - eval(rhs, {"__builtins__": {}}, sd)
+        except Exception:
+            return float("nan")
+
+    roots = _find_roots(f)
+    roots = [r for r in roots if abs(r) < 1000]
+    if not _show_imag_roots:
+        roots = [r for r in roots if not (isinstance(r, complex) and abs(r.imag) > 1e-12)]
+    if not roots:
+        return f"Error: No solution found for '{var}'"
+
+    parts = []
+    for r in roots[:5]:
+        parts.append(_format_root(r))
+    j = " or ".join(parts)
+    if len(roots) > 5:
+        j += f" … and {len(roots) - 5} more"
+    return f"{var} = {j}"
 
 
 def format_result(result: float | complex | str) -> str:
@@ -307,15 +432,18 @@ def print_help():
     print("  sin(0)        -> 0")
     print("  2^10          -> 1024")
     print("  2sin(30)      -> uses radians")
+    print("  x^2 = 4       -> solves equation")
     print()
-    print("  ^h or help    -> this message")
-    print("  ^q or quit    -> exit")
+    print("  ^h / help     -> this message")
+    print("  ^q / quit     -> exit")
     print("  yes_i / yes_j -> set imaginary unit display")
+    print("  i_root        -> toggle imaginary root display")
+    print("  radian/degree -> toggle angle input mode")
     print()
 
 
 def main():
-    global _imag_unit
+    global _imag_unit, _show_imag_roots, _deg_mode
     print("🔢 Scientific Calculator CLI")
     print("Type ^h for help. Type ^q to quit.\n")
 
@@ -345,6 +473,24 @@ def main():
         if expr == "yes_j":
             _imag_unit = "j"
             print("⇒ Imaginary unit set to j\n")
+            continue
+
+        if expr == "i_root":
+            _show_imag_roots = not _show_imag_roots
+            msg = "displaying imaginary roots" if _show_imag_roots else "displaying only real roots"
+            print(f"⇒ {msg}\n")
+            continue
+
+        if expr in ("radian", "degree"):
+            _deg_mode = expr == "degree"
+            mode = "Degree" if _deg_mode else "Radian"
+            print(f"⇒ {mode} mode\n")
+            continue
+
+        # Equation solving if '=' is present
+        if "=" in expr:
+            formatted = solve_equation(expr)
+            print(f"⇒ {formatted}\n")
             continue
 
         # Process and evaluate
