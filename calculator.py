@@ -222,16 +222,20 @@ def _format_float(x: float | int) -> str:
 
 
 _CONSTANT_NAMES = {
-    "e", "g", "c", "h", "k", "j",
+    "e", "g", "c", "G", "h", "k", "j",
+    "pi", "tau", "NA", "R", "F", "Vm",
+    "mu0", "eps0", "epsilon0", "varepsilon0",
+    "atm",
     "sin", "cos", "tan", "asin", "acos", "atan",
     "sqrt", "log", "log2", "log10", "exp", "ln", "lg",
     "abs", "ceil", "floor", "factorial", "pow",
 }
 
 def _find_variable(expr: str) -> str | None:
-    letters = set(re.findall(r'(?<![a-zA-Z])[a-z](?![a-zA-Z])', expr))
-    variables = letters - _CONSTANT_NAMES
-    return variables.pop() if len(variables) == 1 else None
+    names = set(re.findall(r'[a-zA-Z]\w*', expr))
+    names -= _CONSTANT_NAMES
+    names = {n for n in names if n.islower() or (len(n) == 1 and n.isupper())}
+    return names.pop() if len(names) == 1 else None
 
 
 def _secant(f, guesses=None):
@@ -239,15 +243,17 @@ def _secant(f, guesses=None):
         guesses = [0, 1, -1, 2, -2, 5, -5, 10, -10, 100, -100]
     for g in guesses:
         x0, x1 = g, g + 0.1 if g == 0 else g * 1.1
-        for _ in range(200):
+        for _ in range(500):
             f0, f1 = f(x0), f(x1)
             if not (math.isfinite(f0) and math.isfinite(f1)):
                 break
-            if abs(f1) < 1e-12:
+            if abs(f1) < 1e-13:
                 return x1
             if abs(f1 - f0) < 1e-15:
                 break
             x2 = x1 - f1 * (x1 - x0) / (f1 - f0)
+            if abs(x2 - x1) < 1e-12:
+                return x2
             x0, x1 = x1, x2
     return None
 
@@ -299,7 +305,8 @@ def solve_equation(expr: str) -> str:
     if sol is None:
         return f"Error: No solution found for '{var}'"
 
-    sol_str = _format_float(sol)
+    rnd = round(sol)
+    sol_str = str(rnd) if abs(sol - rnd) < 1e-6 else _format_float(sol)
     return f"{var} = {sol_str}"
 
 
