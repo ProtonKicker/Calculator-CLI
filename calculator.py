@@ -238,24 +238,35 @@ def _find_variable(expr: str) -> str | None:
     return names.pop() if len(names) == 1 else None
 
 
-def _secant(f, guesses=None):
+def _secant_from(f, guess):
+    x0, x1 = guess, guess + 0.1 if guess == 0 else guess * 1.1
+    for _ in range(500):
+        f0, f1 = f(x0), f(x1)
+        if not (isinstance(f0, (int, float)) and isinstance(f1, (int, float)) and math.isfinite(f0) and math.isfinite(f1)):
+            break
+        if abs(f1) < 1e-13:
+            return x1
+        if abs(f1 - f0) < 1e-15:
+            break
+        x2 = x1 - f1 * (x1 - x0) / (f1 - f0)
+        if abs(x2 - x1) < 1e-12:
+            return x2
+        x0, x1 = x1, x2
+    return None
+
+
+def _find_roots(f, guesses=None):
     if guesses is None:
         guesses = [0, 1, -1, 2, -2, 5, -5, 10, -10, 100, -100]
+    roots = []
     for g in guesses:
-        x0, x1 = g, g + 0.1 if g == 0 else g * 1.1
-        for _ in range(500):
-            f0, f1 = f(x0), f(x1)
-            if not (math.isfinite(f0) and math.isfinite(f1)):
-                break
-            if abs(f1) < 1e-13:
-                return x1
-            if abs(f1 - f0) < 1e-15:
-                break
-            x2 = x1 - f1 * (x1 - x0) / (f1 - f0)
-            if abs(x2 - x1) < 1e-12:
-                return x2
-            x0, x1 = x1, x2
-    return None
+        r = _secant_from(f, g)
+        if r is None:
+            continue
+        if not any(abs(r - e) < 1e-6 for e in roots):
+            roots.append(r)
+    roots.sort()
+    return roots
 
 
 def _build_safe_dict(var_name: str | None = None, var_val: float | None = None) -> dict:
@@ -297,17 +308,26 @@ def solve_equation(expr: str) -> str:
     def f(val):
         sd = _build_safe_dict(var, val)
         try:
-            return eval(lhs, {"__builtins__": {}}, sd) - eval(rhs, {"__builtins__": {}}, sd)
+            r = eval(lhs, {"__builtins__": {}}, sd) - eval(rhs, {"__builtins__": {}}, sd)
+            if isinstance(r, complex):
+                return r.real if abs(r.imag) < 1e-12 else float("nan")
+            return r
         except Exception:
             return float("nan")
 
-    sol = _secant(f)
-    if sol is None:
+    roots = _find_roots(f)
+    roots = [r for r in roots if abs(r) < 1000]
+    if not roots:
         return f"Error: No solution found for '{var}'"
 
-    rnd = round(sol)
-    sol_str = str(rnd) if abs(sol - rnd) < 1e-6 else _format_float(sol)
-    return f"{var} = {sol_str}"
+    parts = []
+    for r in roots[:5]:
+        rnd = round(r)
+        parts.append(str(rnd) if abs(r - rnd) < 1e-6 else _format_float(r))
+    j = " or ".join(parts)
+    if len(roots) > 5:
+        j += f" … and {len(roots) - 5} more"
+    return f"{var} = {j}"
 
 
 def format_result(result: float | complex | str) -> str:
