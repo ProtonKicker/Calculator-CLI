@@ -283,16 +283,41 @@ def _latex_to_display_inner(expr: str) -> str:
     return expr
 
 
+def _replace_sqrt(s: str) -> str:
+    """Replace sqrt(...) with √(...) handling nested parentheses."""
+    result = []
+    i = 0
+    while i < len(s):
+        if s[i:i+5] == 'sqrt(':
+            depth = 1
+            j = i + 5
+            while j < len(s) and depth > 0:
+                if s[j] == '(':
+                    depth += 1
+                elif s[j] == ')':
+                    depth -= 1
+                j += 1
+            inner = _replace_sqrt(s[i+5:j-1])
+            rad_str = inner if _is_simple(inner) else f'({inner})'
+            result.append('√' + rad_str)
+            i = j
+        else:
+            result.append(s[i])
+            i += 1
+    return ''.join(result)
+
+
 def latex_to_display(expr: str) -> str:
     """Convert LaTeX math syntax to a display-friendly Unicode string."""
-    if '\\' not in expr:
-        return expr
-    expr = expr.replace(r'\(', '(').replace(r'\)', ')')
-    expr = expr.replace(r'\[', '(').replace(r'\]', ')')
-    return _latex_to_display_inner(expr)
+    if '\\' in expr:
+        expr = expr.replace(r'\(', '(').replace(r'\)', ')')
+        expr = expr.replace(r'\[', '(').replace(r'\]', ')')
+        expr = _latex_to_display_inner(expr)
+    return _replace_sqrt(expr)
 
 
 _ROOT_RE = re.compile(r'\(?([a-zA-Z_]\w*|\d+(?:\.\d+)?)\)?\*\*\(1/(\d+)\)')
+_ROOT_HALF_RE = re.compile(r'\(?([a-zA-Z_]\w*|\d+(?:\.\d+)?)\)?\*\*0\.5(?!\d)')
 
 
 def detect_root(cleaned: str) -> str | None:
@@ -308,6 +333,9 @@ def detect_root(cleaned: str) -> str | None:
             return f"∜{base}"
         else:
             return f"{base}^(1/{n})"
+    m = _ROOT_HALF_RE.search(cleaned)
+    if m:
+        return f"√{m.group(1)}"
     return None
 
 
