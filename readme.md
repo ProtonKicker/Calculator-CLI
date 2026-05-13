@@ -33,8 +33,7 @@ LaTeX subscript form: `\mu_0`, `\epsilon_0`, `\varepsilon_0` are also accepted.
 |---------|-------------|
 | `help` / `h` / `^h` | Show help message |
 | `quit` / `q` / `^q` | Exit the calculator |
-| `yes_i` | Display imaginary unit as `i` (input accepts both `i` and `j`) |
-| `yes_j` | Display imaginary unit as `j` (default) |
+| `yes_i` / `yes_j` | Switches between `i` and `j` fo display of imaginary unit as (input accepts both `i` and `j`) |
 | `i_root` | Toggle display of imaginary/complex roots in equation solving |
 | `radian` / `degree` | Toggle angle input mode for trigonometric functions |
 
