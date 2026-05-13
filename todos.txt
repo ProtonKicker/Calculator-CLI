@@ -1,8 +1,0 @@
-fixes:
-- 
-
-things to add:
-- 
-
-possible additions:
-- function solver (eg. x^2 + 2 = 0, output x's roots)

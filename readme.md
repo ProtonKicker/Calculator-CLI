@@ -1,4 +1,6 @@
-# Calculator CLI
+I'm a student. One day I thought: Why bother carrying the old fashioned TI-84 around if I have my laptop? Kalker is definitely close but I haven't found any calculator that I really liked, so here I'm building myself one👇
+
+# Calculator CLI 
 
 A terminal-based scientific calculator supporting basic math, scientific functions, imaginary numbers, and LaTeX syntax input.
 
@@ -24,3 +26,7 @@ A terminal-based scientific calculator supporting basic math, scientific functio
 | `Vm` | 22.413969545014137 | Molar volume @ STP (L/mol) | Chemistry |
 
 LaTeX subscript form: `\mu_0`, `\epsilon_0`, `\varepsilon_0` are also accepted.
+
+## Commands
+
+By default, imaginary units are displayed as `j`, but typing `yes_i` changes it to `i`, and `yes_j` changes it back to `j`. Both `j` and `i` are always accepted as input for imaginary units.

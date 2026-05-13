@@ -2,6 +2,8 @@ import math
 import re
 import sys
 
+_imag_unit = "j"
+
 
 def _sqrt(x: float) -> float | complex:
     """Square root supporting negative inputs (returns complex)."""
@@ -273,10 +275,10 @@ def format_result(result: float | complex | str) -> str:
         if i == 0:
             return _format_float(r)
         if r == 0:
-            return f"{_format_float(i)}j"
+            return f"{_format_float(i)}{_imag_unit}"
         r_str = _format_float(r)
         i_str = _format_float(abs(i))
-        return f"{r_str}+{i_str}j" if i > 0 else f"{r_str}-{i_str}j"
+        return f"{r_str}+{i_str}{_imag_unit}" if i > 0 else f"{r_str}-{i_str}{_imag_unit}"
     return _format_float(result)
 
 
@@ -308,10 +310,12 @@ def print_help():
     print()
     print("  ^h or help    -> this message")
     print("  ^q or quit    -> exit")
+    print("  yes_i / yes_j -> set imaginary unit display")
     print()
 
 
 def main():
+    global _imag_unit
     print("🔢 Scientific Calculator CLI")
     print("Type ^h for help. Type ^q to quit.\n")
 
@@ -331,6 +335,16 @@ def main():
 
         if expr in ("^h", "help", "h"):
             print_help()
+            continue
+
+        if expr == "yes_i":
+            _imag_unit = "i"
+            print("⇒ Imaginary unit set to i\n")
+            continue
+
+        if expr == "yes_j":
+            _imag_unit = "j"
+            print("⇒ Imaginary unit set to j\n")
             continue
 
         # Process and evaluate
