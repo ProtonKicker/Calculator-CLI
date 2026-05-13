@@ -40,3 +40,56 @@ LaTeX subscript form: `\mu_0`, `\epsilon_0`, `\varepsilon_0` are also accepted.
 - **Imaginary unit display**: By default, imaginary units are displayed as `j`. Typing `yes_i` changes the output to use `i`, and `yes_j` reverts to `j`. Both `j` and `i` are always accepted as input.
 - **Imaginary roots**: When equation solving (`x^2 + 1 = 0`), toggling `i_root` off filters results to show only real roots.
 - **Angle mode**: In degree mode, `sin(90)` = 1 and `asin(1)` = 90. Default is radian mode.
+
+## LaTeX Input
+
+The calculator supports LaTeX-style syntax for many operations:
+
+| Input | Display | Example |
+|-------|---------|---------|
+| `\frac{num}{den}` | num/den | `\frac{1}{2}` → 0.5 |
+| `\sqrt{rad}` | √rad | `\sqrt{144}` → 12 |
+| `\sqrt[n]{rad}` | ∛rad, ∜rad, rad^(1/n) | `\sqrt[3]{8}` → 2 |
+| `\sin{arg}` | sin(arg) | `\sin{0}` → 0 |
+| `\pi`, `\tau`, etc. | π, τ | `\pi` → 3.141593 |
+| `\mu_0`, `\epsilon_0` | constants | Permittivity, permeability |
+
+## Definite Integrals (Numerical)
+
+Numerical integration using adaptive Simpson's rule:
+
+```
+\int_0^1 2x dx              → 1
+\int_0^{pi} sin(x) dx       → 2
+\int_0^1 \int_0^2 x*y dy dx → 1
+```
+
+Supports any nesting depth. Bounds can be braced `{0}` or unbraced `0`. Use `d{var}` to specify the integration variable.
+
+## Summations
+
+```
+\sum_{n=0}^{5} n^2                → 55
+\sum_{i=1}^{3} \sum_{j=1}^{2} i*j → 18
+```
+
+Supports any nesting depth. The variable is specified in the subscript with `{var=start}` and the upper bound in the superscript.
+
+## Numerical Derivatives
+
+Evaluate derivatives at a point using central finite differences:
+
+```
+d/dx_3 x^2          → 6        (first derivative at x=3)
+d^2/dx^2_3 x^3     → 18       (second derivative at x=3)
+d/dx_0 sin(x)       → 1        (d/dx sin(x) at x=0)
+```
+
+Supports higher-order derivatives via `d^n/dx^n` or `dn/dxn` notation.
+
+## Notes
+
+- In integrals, sums, and derivatives, `i` is treated as a variable name (not the imaginary unit). Use `j` explicitly for the imaginary unit in these expressions.
+- Numerical integration uses adaptive Simpson's rule with a tolerance of 1e-8.
+- Derivatives use central finite differences with adaptive step sizes.
+- For sums, only the `{var=start}` braced subscript form is supported.
