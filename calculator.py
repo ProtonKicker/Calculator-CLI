@@ -164,6 +164,130 @@ def latex_to_python(expr: str) -> str:
     return _latex_to_python_inner(expr)
 
 
+def _is_simple(s: str) -> bool:
+    """Check if a string is a simple value that doesn't need parentheses."""
+    return bool(re.fullmatch(r'[a-zA-Z0-9πτ.√∛∜]+', s))
+
+
+def _latex_to_display_inner(expr: str) -> str:
+    """Recursively convert LaTeX math syntax to display-friendly Unicode string."""
+
+    # \frac{num}{den} -> num/den
+    i = 0
+    while i < len(expr):
+        if expr[i:i+6] == r"\frac{" and i + 6 <= len(expr):
+            num_start = i + 5
+            num_end = _find_matching_brace(expr, num_start)
+            if num_end != -1:
+                den_start = num_end + 1
+                if den_start < len(expr) and expr[den_start] == '{':
+                    den_end = _find_matching_brace(expr, den_start)
+                    if den_end != -1:
+                        num = _latex_to_display_inner(expr[num_start+1:num_end])
+                        den = _latex_to_display_inner(expr[den_start+1:den_end])
+                        pre_func = None
+                        j = i - 1
+                        while j >= 0 and expr[j].isalpha():
+                            j -= 1
+                        if j >= 0 and expr[j] == '\\' and j + 1 < i:
+                            pre_func = expr[j+1:i]
+                        num_str = num if _is_simple(num) else f"({num})"
+                        den_str = den if _is_simple(den) else f"({den})"
+                        replacement = f"{num_str}/{den_str}"
+                        if pre_func:
+                            replacement = f"{pre_func}({replacement})"
+                            expr = expr[:j] + replacement + expr[den_end+1:]
+                        else:
+                            expr = expr[:i] + replacement + expr[den_end+1:]
+                        return _latex_to_display_inner(expr)
+        i += 1
+
+    # \sqrt[index]{rad} and \sqrt{rad}
+    i = 0
+    while i < len(expr):
+        if expr[i:i+5] == r"\sqrt" and i + 5 <= len(expr):
+            idx = "2"
+            rad_start = i + 5
+            if rad_start < len(expr) and expr[rad_start] == '[':
+                bracket_end = expr.find(']', rad_start + 1)
+                if bracket_end != -1:
+                    idx = expr[rad_start+1:bracket_end]
+                    rad_start = bracket_end + 1
+            if rad_start < len(expr) and expr[rad_start] == '{':
+                rad_end = _find_matching_brace(expr, rad_start)
+                if rad_end != -1:
+                    rad = _latex_to_display_inner(expr[rad_start+1:rad_end])
+                    root_map = {"2": "√", "3": "∛", "4": "∜"}
+                    symbol = root_map.get(idx, f"√[{idx}]")
+                    rad_str = rad if _is_simple(rad) else f"({rad})"
+                    replacement = f"{symbol}{rad_str}"
+                    expr = expr[:i] + replacement + expr[rad_end+1:]
+                    return _latex_to_display_inner(expr)
+        i += 1
+
+    # \cmd{arg} for any alphabetic LaTeX command
+    i = 0
+    while i < len(expr):
+        if expr[i] == '\\' and i + 1 < len(expr) and expr[i+1].isalpha():
+            cmd_end = i + 1
+            while cmd_end < len(expr) and expr[cmd_end].isalpha():
+                cmd_end += 1
+            cmd_name = expr[i+1:cmd_end]
+            if cmd_end < len(expr) and expr[cmd_end] == '{':
+                arg_end = _find_matching_brace(expr, cmd_end)
+                if arg_end != -1:
+                    arg = _latex_to_display_inner(expr[cmd_end+1:arg_end])
+                    expr = expr[:i] + f"{cmd_name}({arg})" + expr[arg_end+1:]
+                    return _latex_to_display_inner(expr)
+        i += 1
+
+    # Strip \left and \right
+    expr = re.sub(r'\\left\b', '', expr)
+    expr = re.sub(r'\\right\b', '', expr)
+
+    # Greek letter aliases
+    greek_map = {
+        r'\pi': 'π', r'\tau': 'τ', r'\alpha': 'α', r'\beta': 'β',
+        r'\gamma': 'γ', r'\delta': 'δ', r'\theta': 'θ', r'\lambda': 'λ',
+        r'\mu': 'μ', r'\phi': 'φ', r'\omega': 'ω', r'\epsilon': 'ε',
+        r'\varepsilon': 'ε', r'\rho': 'ρ', r'\sigma': 'σ', r'\xi': 'ξ',
+        r'\zeta': 'ζ', r'\eta': 'η', r'\iota': 'ι', r'\kappa': 'κ',
+        r'\upsilon': 'υ', r'\chi': 'χ', r'\psi': 'ψ',
+    }
+    for cmd, char in greek_map.items():
+        expr = expr.replace(cmd, char)
+
+    # LaTeX operator aliases
+    expr = expr.replace(r'\cdot', '*')
+    expr = expr.replace(r'\times', '*')
+    expr = expr.replace(r'\div', '/')
+    expr = expr.replace(r'\pm', '+')
+
+    # Convert LaTeX subscripts to normal text
+    expr = re.sub(r'_\{(\d+)\}', r'_\1', expr)
+    expr = re.sub(r'_(\d+)', r'\1', expr)
+
+    # Remaining braces -> parentheses
+    expr = expr.replace('{', '(').replace('}', ')')
+
+    # Strip backslash from remaining alphabetic commands
+    expr = re.sub(r'\\([a-zA-Z]+)', r'\1', expr)
+
+    # Remove any stray backslashes
+    expr = expr.replace('\\', '')
+
+    return expr
+
+
+def latex_to_display(expr: str) -> str:
+    """Convert LaTeX math syntax to a display-friendly Unicode string."""
+    if '\\' not in expr:
+        return expr
+    expr = expr.replace(r'\(', '(').replace(r'\)', ')')
+    expr = expr.replace(r'\[', '(').replace(r'\]', ')')
+    return _latex_to_display_inner(expr)
+
+
 def preprocess(expr: str) -> tuple[str, list[str]]:
     """Clean the expression and return (processed_expr, steps)."""
     steps = []
@@ -499,8 +623,15 @@ def main():
         result = evaluate(cleaned)
         formatted = format_result(result)
 
-        # Show result
-        print(f"⇒ {formatted}\n") #→↪↳⇒▶►
+        # Show result with exact form for non-integer results
+        if isinstance(result, (int, float)) and abs(result - round(result)) < 1e-12:
+            print(f"⇒ {formatted}\n")
+        else:
+            display = latex_to_display(expr)
+            if display != formatted:
+                print(f"⇒ {display} = {formatted}\n")
+            else:
+                print(f"⇒ {formatted}\n")
 
 
 if __name__ == "__main__":
