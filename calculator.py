@@ -2,6 +2,7 @@ import cmath
 import math
 import re
 import sys
+from fractions import Fraction
 
 _imag_unit = "j"
 _show_imag_roots = True
@@ -162,6 +163,189 @@ def latex_to_python(expr: str) -> str:
     expr = expr.replace(r'\(', '(').replace(r'\)', ')')
     expr = expr.replace(r'\[', '(').replace(r'\]', ')')
     return _latex_to_python_inner(expr)
+
+
+def _is_simple(s: str) -> bool:
+    """Check if a string is a simple value that doesn't need parentheses."""
+    return bool(re.fullmatch(r'[a-zA-Z0-9πτ.√∛∜]+', s))
+
+
+def _latex_to_display_inner(expr: str) -> str:
+    """Recursively convert LaTeX math syntax to display-friendly Unicode string."""
+
+    # \frac{num}{den} -> num/den
+    i = 0
+    while i < len(expr):
+        if expr[i:i+6] == r"\frac{" and i + 6 <= len(expr):
+            num_start = i + 5
+            num_end = _find_matching_brace(expr, num_start)
+            if num_end != -1:
+                den_start = num_end + 1
+                if den_start < len(expr) and expr[den_start] == '{':
+                    den_end = _find_matching_brace(expr, den_start)
+                    if den_end != -1:
+                        num = _latex_to_display_inner(expr[num_start+1:num_end])
+                        den = _latex_to_display_inner(expr[den_start+1:den_end])
+                        pre_func = None
+                        j = i - 1
+                        while j >= 0 and expr[j].isalpha():
+                            j -= 1
+                        if j >= 0 and expr[j] == '\\' and j + 1 < i:
+                            pre_func = expr[j+1:i]
+                        num_str = num if _is_simple(num) else f"({num})"
+                        den_str = den if _is_simple(den) else f"({den})"
+                        replacement = f"{num_str}/{den_str}"
+                        if pre_func:
+                            replacement = f"{pre_func}({replacement})"
+                            expr = expr[:j] + replacement + expr[den_end+1:]
+                        else:
+                            expr = expr[:i] + replacement + expr[den_end+1:]
+                        return _latex_to_display_inner(expr)
+        i += 1
+
+    # \sqrt[index]{rad} and \sqrt{rad}
+    i = 0
+    while i < len(expr):
+        if expr[i:i+5] == r"\sqrt" and i + 5 <= len(expr):
+            idx = "2"
+            rad_start = i + 5
+            if rad_start < len(expr) and expr[rad_start] == '[':
+                bracket_end = expr.find(']', rad_start + 1)
+                if bracket_end != -1:
+                    idx = expr[rad_start+1:bracket_end]
+                    rad_start = bracket_end + 1
+            if rad_start < len(expr) and expr[rad_start] == '{':
+                rad_end = _find_matching_brace(expr, rad_start)
+                if rad_end != -1:
+                    rad = _latex_to_display_inner(expr[rad_start+1:rad_end])
+                    rad_str = rad if _is_simple(rad) else f"({rad})"
+                    root_map = {"2": "√", "3": "∛", "4": "∜"}
+                    symbol = root_map.get(idx)
+                    if symbol:
+                        replacement = f"{symbol}{rad_str}"
+                    else:
+                        replacement = f"{rad_str}^(1/{idx})"
+                    expr = expr[:i] + replacement + expr[rad_end+1:]
+                    return _latex_to_display_inner(expr)
+        i += 1
+
+    # \cmd{arg} for any alphabetic LaTeX command
+    i = 0
+    while i < len(expr):
+        if expr[i] == '\\' and i + 1 < len(expr) and expr[i+1].isalpha():
+            cmd_end = i + 1
+            while cmd_end < len(expr) and expr[cmd_end].isalpha():
+                cmd_end += 1
+            cmd_name = expr[i+1:cmd_end]
+            if cmd_end < len(expr) and expr[cmd_end] == '{':
+                arg_end = _find_matching_brace(expr, cmd_end)
+                if arg_end != -1:
+                    arg = _latex_to_display_inner(expr[cmd_end+1:arg_end])
+                    expr = expr[:i] + f"{cmd_name}({arg})" + expr[arg_end+1:]
+                    return _latex_to_display_inner(expr)
+        i += 1
+
+    # Strip \left and \right
+    expr = re.sub(r'\\left\b', '', expr)
+    expr = re.sub(r'\\right\b', '', expr)
+
+    # Greek letter aliases
+    greek_map = {
+        r'\pi': 'π', r'\tau': 'τ', r'\alpha': 'α', r'\beta': 'β',
+        r'\gamma': 'γ', r'\delta': 'δ', r'\theta': 'θ', r'\lambda': 'λ',
+        r'\mu': 'μ', r'\phi': 'φ', r'\omega': 'ω', r'\epsilon': 'ε',
+        r'\varepsilon': 'ε', r'\rho': 'ρ', r'\sigma': 'σ', r'\xi': 'ξ',
+        r'\zeta': 'ζ', r'\eta': 'η', r'\iota': 'ι', r'\kappa': 'κ',
+        r'\upsilon': 'υ', r'\chi': 'χ', r'\psi': 'ψ',
+    }
+    for cmd, char in greek_map.items():
+        expr = expr.replace(cmd, char)
+
+    # LaTeX operator aliases
+    expr = expr.replace(r'\cdot', '*')
+    expr = expr.replace(r'\times', '*')
+    expr = expr.replace(r'\div', '/')
+    expr = expr.replace(r'\pm', '+')
+
+    # Convert LaTeX subscripts to normal text
+    expr = re.sub(r'_\{(\d+)\}', r'_\1', expr)
+    expr = re.sub(r'_(\d+)', r'\1', expr)
+
+    # Remaining braces -> parentheses
+    expr = expr.replace('{', '(').replace('}', ')')
+
+    # Strip backslash from remaining alphabetic commands
+    expr = re.sub(r'\\([a-zA-Z]+)', r'\1', expr)
+
+    # Remove any stray backslashes
+    expr = expr.replace('\\', '')
+
+    return expr
+
+
+def _replace_sqrt(s: str) -> str:
+    """Replace sqrt(...) with √(...) handling nested parentheses."""
+    result = []
+    i = 0
+    while i < len(s):
+        if s[i:i+5] == 'sqrt(':
+            depth = 1
+            j = i + 5
+            while j < len(s) and depth > 0:
+                if s[j] == '(':
+                    depth += 1
+                elif s[j] == ')':
+                    depth -= 1
+                j += 1
+            inner = _replace_sqrt(s[i+5:j-1])
+            rad_str = inner if _is_simple(inner) else f'({inner})'
+            result.append('√' + rad_str)
+            i = j
+        else:
+            result.append(s[i])
+            i += 1
+    return ''.join(result)
+
+
+def latex_to_display(expr: str) -> str:
+    """Convert LaTeX math syntax to a display-friendly Unicode string."""
+    if '\\' in expr:
+        expr = expr.replace(r'\(', '(').replace(r'\)', ')')
+        expr = expr.replace(r'\[', '(').replace(r'\]', ')')
+        expr = _latex_to_display_inner(expr)
+    return _replace_sqrt(expr)
+
+
+_ROOT_RE = re.compile(r'\(?([a-zA-Z_]\w*|\d+(?:\.\d+)?)\)?\*\*\(1/(\d+)\)')
+_ROOT_HALF_RE = re.compile(r'\(?([a-zA-Z_]\w*|\d+(?:\.\d+)?)\)?\*\*0\.5(?!\d)')
+
+
+def detect_root(cleaned: str) -> str | None:
+    m = _ROOT_RE.search(cleaned)
+    if m:
+        base = m.group(1)
+        n = int(m.group(2))
+        if n == 2:
+            return f"√{base}"
+        elif n == 3:
+            return f"∛{base}"
+        elif n == 4:
+            return f"∜{base}"
+        else:
+            return f"{base}^(1/{n})"
+    m = _ROOT_HALF_RE.search(cleaned)
+    if m:
+        return f"√{m.group(1)}"
+    return None
+
+
+def to_fraction(x: float) -> str | None:
+    if abs(x - round(x)) < 1e-12:
+        return None
+    f = Fraction(x).limit_denominator(10000)
+    if f.denominator != 1 and abs(float(f) - x) < 1e-10:
+        return f"{f.numerator}/{f.denominator}"
+    return None
 
 
 def preprocess(expr: str) -> tuple[str, list[str]]:
@@ -499,8 +683,34 @@ def main():
         result = evaluate(cleaned)
         formatted = format_result(result)
 
-        # Show result
-        print(f"⇒ {formatted}\n") #→↪↳⇒▶►
+        # Whole number -> just show number
+        if isinstance(result, (int, float)) and abs(result - round(result)) < 1e-12:
+            print(f"⇒ {formatted}\n")
+            continue
+
+        # Determine true value display
+        true_val = None
+
+        # 1. LaTeX display (for \sqrt, \frac, etc.)
+        if '\\' in expr:
+            true_val = latex_to_display(expr)
+
+        # 2. Root pattern (for num^(1/n) notation)
+        if true_val is None:
+            true_val = detect_root(cleaned)
+
+        # 3. Fraction conversion (for rational results)
+        if true_val is None and isinstance(result, (int, float)):
+            true_val = to_fraction(result)
+
+        # 4. Fallback to latex_to_display (original or cleaned)
+        if true_val is None:
+            true_val = latex_to_display(expr)
+
+        if true_val != formatted:
+            print(f"⇒ {true_val} = {formatted}\n")
+        else:
+            print(f"⇒ {formatted}\n")
 
 
 if __name__ == "__main__":
