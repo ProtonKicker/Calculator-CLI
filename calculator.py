@@ -722,8 +722,30 @@ def _secant_from(f, guess):
     return None
 
 
+def _find_root_bisection(f, a, b):
+    fa, fb = f(a), f(b)
+    if not (_finite(fa) and _finite(fb)):
+        return None
+    if abs(fa) < 1e-14: return a
+    if abs(fb) < 1e-14: return b
+    if fa * fb > 0:
+        return None
+    for _ in range(100):
+        m = (a + b) / 2.0
+        fm = f(m)
+        if not _finite(fm):
+            return None
+        if abs(fm) < 1e-12:
+            return m
+        if fa * fm <= 0:
+            b, fb = m, fm
+        else:
+            a, fa = m, fm
+    return m if _finite(fm := f((a+b)/2)) and abs(fm) < 1e-6 else None
+
+
 def _find_roots(f):
-    real_guesses = [0, 1, -1, 2, -2, 5, -5, 10, -10, 100, -100]
+    real_guesses = [0, 1, -1, 2, -2, 5, -5, 10, -10, 100, -100, 0.5, -0.5, 0.2, -0.2, 0.1, -0.1, 0.01, -0.01]
     complex_guesses = [
         1j, -1j,
         0.5+0.866j, -0.5+0.866j, -0.5-0.866j, 0.5-0.866j,
@@ -735,6 +757,22 @@ def _find_roots(f):
             continue
         if not any(abs(r - e) < 1e-6 for e in roots):
             roots.append(r)
+
+    if not roots:
+        step = 0.5
+        lo, hi = -100.0, 100.0
+        a = lo
+        while a < hi:
+            b = a + step
+            fa, fb = f(a), f(b)
+            if _finite(fa) and _finite(fb) and fa * fb < 0:
+                r = _find_root_bisection(f, a, b)
+                if r is not None and not any(abs(r - e) < 1e-6 for e in roots):
+                    roots.append(r)
+                    a = b
+                    continue
+            a = b
+
     roots.sort(key=lambda r: (r.real if isinstance(r, complex) else r,
                                abs(r.imag) if isinstance(r, complex) else 0))
     return roots
