@@ -4,6 +4,10 @@ import re
 import sys
 
 _imag_unit = "j"
+_show_imag_roots = True
+_deg_mode = False
+_DEG = math.pi / 180
+_RAD = 180 / math.pi
 
 
 def _sqrt(x: float) -> float | complex:
@@ -311,6 +315,16 @@ def _build_safe_dict(var_name: str | None = None, var_val: float | complex | Non
             "exp": math.exp, "ln": math.log, "lg": math.log10,
             "ceil": math.ceil, "floor": math.floor, "factorial": math.factorial,
         })
+    if _deg_mode:
+        m = cmath if use_cmath else math
+        d.update({
+            "sin": lambda x: m.sin(x * _DEG),
+            "cos": lambda x: m.cos(x * _DEG),
+            "tan": lambda x: m.tan(x * _DEG),
+            "asin": lambda x: m.asin(x) * _RAD,
+            "acos": lambda x: m.acos(x) * _RAD,
+            "atan": lambda x: m.atan(x) * _RAD,
+        })
     if var_name is not None and var_val is not None:
         d[var_name] = var_val
     return d
@@ -359,6 +373,8 @@ def solve_equation(expr: str) -> str:
 
     roots = _find_roots(f)
     roots = [r for r in roots if abs(r) < 1000]
+    if not _show_imag_roots:
+        roots = [r for r in roots if not (isinstance(r, complex) and abs(r.imag) > 1e-12)]
     if not roots:
         return f"Error: No solution found for '{var}'"
 
@@ -418,14 +434,16 @@ def print_help():
     print("  2sin(30)      -> uses radians")
     print("  x^2 = 4       -> solves equation")
     print()
-    print("  ^h or help    -> this message")
-    print("  ^q or quit    -> exit")
+    print("  ^h / help     -> this message")
+    print("  ^q / quit     -> exit")
     print("  yes_i / yes_j -> set imaginary unit display")
+    print("  i_root        -> toggle imaginary root display")
+    print("  radian/degree -> toggle angle input mode")
     print()
 
 
 def main():
-    global _imag_unit
+    global _imag_unit, _show_imag_roots, _deg_mode
     print("🔢 Scientific Calculator CLI")
     print("Type ^h for help. Type ^q to quit.\n")
 
@@ -455,6 +473,18 @@ def main():
         if expr == "yes_j":
             _imag_unit = "j"
             print("⇒ Imaginary unit set to j\n")
+            continue
+
+        if expr == "i_root":
+            _show_imag_roots = not _show_imag_roots
+            msg = "displaying imaginary roots" if _show_imag_roots else "displaying only real roots"
+            print(f"⇒ {msg}\n")
+            continue
+
+        if expr in ("radian", "degree"):
+            _deg_mode = expr == "degree"
+            mode = "Degree" if _deg_mode else "Radian"
+            print(f"⇒ {mode} mode\n")
             continue
 
         # Equation solving if '=' is present

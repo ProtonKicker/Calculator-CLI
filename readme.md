@@ -29,4 +29,15 @@ LaTeX subscript form: `\mu_0`, `\epsilon_0`, `\varepsilon_0` are also accepted.
 
 ## Commands
 
-By default, imaginary units are displayed as `j`, but typing `yes_i` changes it to `i`, and `yes_j` changes it back to `j`. Both `j` and `i` are always accepted as input for imaginary units.
+| Command | Description |
+|---------|-------------|
+| `help` / `h` / `^h` | Show help message |
+| `quit` / `q` / `^q` | Exit the calculator |
+| `yes_i` | Display imaginary unit as `i` (input accepts both `i` and `j`) |
+| `yes_j` | Display imaginary unit as `j` (default) |
+| `i_root` | Toggle display of imaginary/complex roots in equation solving |
+| `radian` / `degree` | Toggle angle input mode for trigonometric functions |
+
+- **Imaginary unit display**: By default, imaginary units are displayed as `j`. Typing `yes_i` changes the output to use `i`, and `yes_j` reverts to `j`. Both `j` and `i` are always accepted as input.
+- **Imaginary roots**: When equation solving (`x^2 + 1 = 0`), toggling `i_root` off filters results to show only real roots.
+- **Angle mode**: In degree mode, `sin(90)` = 1 and `asin(1)` = 90. Default is radian mode.
