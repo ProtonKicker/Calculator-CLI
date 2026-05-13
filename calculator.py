@@ -348,6 +348,278 @@ def to_fraction(x: float) -> str | None:
     return None
 
 
+# ── Multi-Integral Solver ─────────────────────────────────────────────────────
+
+_INTEGRAL_SEG = re.compile(
+    r'\\(?:i+|I+)nt\s*'
+    r'(?:'
+    r'_\s*\{?([^\s}{^_]+)\}?(?:\s*\^\s*\{?([^\s}{^_]+)\}?)?'    # _lower ^upper?
+    r'|'
+    r'\^\s*\{?([^\s}{^_]+)\}?(?:\s*_\s*\{?([^\s}{^_]+)\}?)?'    # ^upper _lower?
+    r')?'
+)
+
+
+def _parse_multi_integral(expr):
+    r"""Parse any number of nested \int_{lower}^{upper} ... d{var} expressions.
+    Returns (outer_to_inner_list, integrand_text) or None."""
+    expr = expr.strip()
+    if not re.match(r'\\i+nt', expr):
+        return None
+    int_matches = list(_INTEGRAL_SEG.finditer(expr))
+    if not int_matches:
+        return None
+    dvar_matches = list(re.finditer(r'd\s*\{?([a-zA-Z])\}?', expr))
+    if len(int_matches) != len(dvar_matches):
+        return None
+    last_int_end = int_matches[-1].end()
+    first_dvar_start = dvar_matches[0].start()
+    integrand = expr[last_int_end:first_dvar_start].strip()
+    ints = []
+    for m in int_matches:
+        if m.group(1) is not None:
+            ints.append((m.group(1), m.group(2)))
+        else:
+            ints.append((m.group(4), m.group(3)))
+    dvars = [m.group(1) for m in dvar_matches]
+    paired = [
+        (lower, upper, dvar)
+        for (lower, upper), dvar in zip(ints, reversed(dvars))
+    ]
+    return paired, integrand
+
+
+def _numerical_integrate(f, a, b, depth=0):
+    """Integrate f from a to b using composite Simpson's rule."""
+    if a == b:
+        return 0.0
+    if a > b:
+        return -_numerical_integrate(f, b, a, depth)
+    n = max(8, 150 // (depth + 1))
+    if n % 2:
+        n += 1
+    h = (b - a) / n
+    s = f(a) + f(b)
+    for i in range(1, n, 2):
+        s += 4 * f(a + i * h)
+    for i in range(2, n - 1, 2):
+        s += 2 * f(a + i * h)
+    return s * h / 3
+
+
+def _preprocess_light(expr):
+    """Preprocess without converting standalone i to imaginary unit."""
+    expr = latex_to_python(expr)
+    expr = expr.replace('{', '(').replace('}', ')').replace('[', '(').replace(']', ')')
+    cleaned = expr.replace(" ", "")
+    for old, new in [("mod", "%"), ("MOD", "%"), ("Mod", "%"),
+                     ("^", "**"),
+                     ("π", "3.14159265358979"),
+                     ("PI", "3.14159265358979"),
+                     ("pi", "3.14159265358979")]:
+        cleaned = cleaned.replace(old, new)
+    cleaned = re.sub(r'(\d)([a-zA-Z(])', r'\1*\2', cleaned)
+    cleaned = re.sub(r'\)(\d)', r')*\1', cleaned)
+    return cleaned
+
+
+def solve_multi_integral(expr):
+    parsed = _parse_multi_integral(expr)
+    if not parsed:
+        return None
+    integrals, integrand = parsed
+    integrand_cleaned = _preprocess_light(integrand)
+
+    def eval_depth(depth, var_bindings):
+        if depth >= len(integrals):
+            sd = _build_safe_dict()
+            sd.update(var_bindings)
+            try:
+                return eval(integrand_cleaned, {"__builtins__": {}}, sd)
+            except Exception:
+                return float('nan')
+
+        lower_str, upper_str, var = integrals[depth]
+        lower_cleaned, _ = preprocess(lower_str)
+        upper_cleaned, _ = preprocess(upper_str)
+        try:
+            lo = float(eval(lower_cleaned, {"__builtins__": {}}, _build_safe_dict()))
+            hi = float(eval(upper_cleaned, {"__builtins__": {}}, _build_safe_dict()))
+        except Exception:
+            return float('nan')
+
+        def f(val):
+            nb = var_bindings.copy()
+            nb[var] = val
+            return eval_depth(depth + 1, nb)
+
+        return _numerical_integrate(f, lo, hi, depth)
+
+    result = eval_depth(0, {})
+    if isinstance(result, complex) or (math.isnan(result) if isinstance(result, (int, float)) else False):
+        return None
+    if isinstance(result, (int, float)) and math.isinf(result):
+        return None
+    if isinstance(result, (int, float)) and abs(result - round(result)) < 5e-7:
+        return round(result)
+    return result
+
+
+# ── Multi-Sum Solver ──────────────────────────────────────────────────────────
+
+_SUM_SEG = re.compile(
+    r'\\sum\s*'
+    r'(?:'
+    r'_\s*\{?([a-zA-Z])\s*=\s*([^\s_}^]+)\}?(?:\s*\^\s*\{?([^\s}_^]+)\}?)?'   # _var=start ^end
+    r'|'
+    r'\^\s*\{?([^\s}_^]+)\}?(?:\s*_\s*\{?([a-zA-Z])\s*=\s*([^\s_}^]+)\}?)?'   # ^end _var=start
+    r')?'
+)
+
+
+def _parse_multi_sum(expr):
+    r"""Parse any number of nested \sum_{var=start}^{end} expressions.
+    Returns (outer_to_inner_list, summand_text) or None."""
+    expr = expr.strip()
+    if not expr.startswith(r'\sum'):
+        return None
+    sum_matches = list(_SUM_SEG.finditer(expr))
+    if not sum_matches:
+        return None
+    last_end = sum_matches[-1].end()
+    summand = expr[last_end:].strip()
+    sums = []
+    for m in sum_matches:
+        if m.group(1) is not None:
+            sums.append((m.group(1), m.group(2), m.group(3)))
+        else:
+            sums.append((m.group(5), m.group(6), m.group(4)))
+    return sums, summand
+
+
+def solve_multi_sum(expr):
+    parsed = _parse_multi_sum(expr)
+    if not parsed:
+        return None
+    sums, summand = parsed
+    summand_cleaned = _preprocess_light(summand)
+
+    def eval_depth(depth, var_bindings):
+        if depth >= len(sums):
+            sd = _build_safe_dict()
+            sd.update(var_bindings)
+            try:
+                return eval(summand_cleaned, {"__builtins__": {}}, sd)
+            except Exception:
+                return float('nan')
+
+        var, start_str, end_str = sums[depth]
+        start_cleaned, _ = preprocess(start_str)
+        end_cleaned, _ = preprocess(end_str)
+        try:
+            lo = int(eval(start_cleaned, {"__builtins__": {}}, _build_safe_dict()))
+            hi = int(eval(end_cleaned, {"__builtins__": {}}, _build_safe_dict()))
+        except Exception:
+            return float('nan')
+
+        total = 0.0
+        for i in range(lo, hi + 1):
+            nb = var_bindings.copy()
+            nb[var] = i
+            total += eval_depth(depth + 1, nb)
+        return total
+
+    result = eval_depth(0, {})
+    if isinstance(result, complex) or (math.isnan(result) if isinstance(result, (int, float)) else False):
+        return None
+    if isinstance(result, (int, float)) and math.isinf(result):
+        return None
+    if isinstance(result, (int, float)) and abs(result - round(result)) < 5e-7:
+        return round(result)
+    return result
+
+
+# ── Derivative Solver ─────────────────────────────────────────────────────────
+
+_DERIV_RE = re.compile(r'd(?:\^?(\d+))?/d([a-zA-Z])(?:\^?(\d+))?\s*(?:_\{?([^\s}]+)\}?)?\s*(.+)$')
+
+
+def _numerical_derivative(f, x, order=1):
+    """Compute the nth derivative of f at x using central differences."""
+    if order == 0:
+        return f(x)
+    if order == 1:
+        h = 1e-5 * max(1.0, abs(x))
+        return (f(x + h) - f(x - h)) / (2 * h)
+    if order == 2:
+        h = 1e-4 * max(1.0, abs(x))
+        return (f(x + h) - 2 * f(x) + f(x - h)) / (h * h)
+    if order == 3:
+        h = 1e-4 * max(1.0, abs(x))
+        h2 = 2 * h
+        return (f(x + h2) - 2 * f(x + h) + 2 * f(x - h) - f(x - h2)) / (2 * h ** 3)
+    if order == 4:
+        h = 1e-4 * max(1.0, abs(x))
+        h2 = 2 * h
+        return (f(x + h2) - 4 * f(x + h) + 6 * f(x) - 4 * f(x - h) + f(x - h2)) / (h ** 4)
+    f_prev = lambda val: _numerical_derivative(f, val, order - 1)
+    h = 1e-4 * max(1.0, abs(x))
+    return (f_prev(x + h) - f_prev(x - h)) / (2 * h)
+
+
+def solve_derivative(expr):
+    m = _DERIV_RE.match(expr.strip())
+    if not m:
+        return None
+    var = m.group(2)
+    order = int(m.group(1) or m.group(3) or '1')
+    point_str = m.group(4)
+    ex = m.group(5).strip()
+    if point_str is None:
+        return None
+    try:
+        point_cleaned, _ = preprocess(point_str)
+    except Exception:
+        return None
+    ex_cleaned = _preprocess_light(ex)
+    try:
+        x0 = float(eval(point_cleaned, {"__builtins__": {}}, _build_safe_dict()))
+    except Exception:
+        return None
+    if isinstance(x0, str):
+        return None
+
+    def f(val):
+        sd = _build_safe_dict(var, val)
+        try:
+            return eval(ex_cleaned, {"__builtins__": {}}, sd)
+        except Exception:
+            return float('nan')
+
+    try:
+        deriv = _numerical_derivative(f, x0, order)
+        if abs(deriv) < 1e-12:
+            deriv = 0.0
+        if isinstance(deriv, (int, float)) and abs(deriv - round(deriv)) < 5e-7:
+            deriv = round(deriv)
+        if math.isnan(deriv) or math.isinf(deriv):
+            return None
+        return deriv
+    except Exception:
+        return None
+
+
+# ── Display formatter ─────────────────────────────────────────────────────────
+
+def _format_calc_display(expr):
+    expr = expr.replace(r'\iiiint', '∬∬').replace(r'\iiint', '∭').replace(r'\iint', '∬')
+    expr = expr.replace(r'\int', '∫')
+    return expr.replace(r'\sum', '∑')
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 def preprocess(expr: str) -> tuple[str, list[str]]:
     """Clean the expression and return (processed_expr, steps)."""
     steps = []
@@ -531,7 +803,9 @@ def _format_root(r: float | complex) -> str:
         i_str = _format_float(abs(imag))
         return f"{r_str}+{i_str}{_imag_unit}" if imag > 0 else f"{r_str}-{i_str}{_imag_unit}"
     rnd = round(r)
-    return str(rnd) if abs(r - rnd) < 1e-6 else _format_float(r)
+    if abs(r) >= 1e-7 and abs(r - rnd) < 1e-10 * max(1.0, abs(r)):
+        return str(rnd)
+    return _format_float(r)
 
 
 def solve_equation(expr: str) -> str:
@@ -591,6 +865,54 @@ def format_result(result: float | complex | str) -> str:
     return _format_float(result)
 
 
+_INEQ_OP = re.compile(r'(.+?)\s*\\(ne|geq|leq)\s*(.+)')
+
+_INEQ_SYMBOLS = {'ne': '≠', 'geq': '≥', 'leq': '≤'}
+
+
+def solve_inequality(expr):
+    m = _INEQ_OP.match(expr.strip())
+    if not m:
+        return None
+    lhs_raw, op, rhs_raw = m.group(1).strip(), m.group(2), m.group(3).strip()
+    full = lhs_raw + ' ' + rhs_raw
+    var = _find_variable(full)
+    if var is None:
+        return "Error: Could not identify a single variable"
+    lhs, _ = preprocess(lhs_raw)
+    rhs, _ = preprocess(rhs_raw)
+
+    def f(val):
+        sd = _build_safe_dict(var, val)
+        try:
+            return eval(lhs, {"__builtins__": {}}, sd) - eval(rhs, {"__builtins__": {}}, sd)
+        except Exception:
+            return float('nan')
+
+    roots = _find_roots(f)
+    roots = [r for r in roots if isinstance(r, (int, float)) and abs(r) < 1000]
+    if not roots:
+        return f"Error: No solution found for '{var}'"
+
+    r = roots[0]
+    if op == 'ne':
+        return f"{var} ≠ {_format_root(r)}"
+
+    try:
+        test = f(r + 1.0)
+    except Exception:
+        try:
+            test = f(r - 1.0)
+        except Exception:
+            test = 0
+    f_pos = bool(test > 0) if not isinstance(test, complex) else True
+
+    if op == 'geq':
+        return f"{var} ≥ {_format_root(r)}" if f_pos else f"{var} ≤ {_format_root(r)}"
+    else:
+        return f"{var} ≤ {_format_root(r)}" if f_pos else f"{var} ≥ {_format_root(r)}"
+
+
 def print_help():
     """Print help message."""
     print("\n📖 Scientific Calculator CLI")
@@ -609,6 +931,18 @@ def print_help():
     print(r"  \pi                 -> 3.141593")
     print(r"  \sin\frac{\pi}{2}   -> 1")
     print(r"  \mu_0  \epsilon_0   -> constants")
+    print()
+    print("Integrals (numerical):")
+    print(r"  \int_0^1 2x dx                 -> 1")
+    print(r"  \int_0^1 \int_0^2 x*y dy dx    -> 1")
+    print()
+    print("Sums:")
+    print(r"  \sum_{n=0}^{5} n^2             -> 55")
+    print(r"  \sum_{i=1}^{3} \sum_{j=1}^{2} i*j -> 18")
+    print()
+    print("Derivatives (numerical):")
+    print(r"  d/dx_3 x^2                     -> 6")
+    print(r"  d^2/dx^2_3 x^3                -> 18")
     print()
     print("Examples:")
     print("  7 mod 5       -> 2")
@@ -670,6 +1004,57 @@ def main():
             mode = "Degree" if _deg_mode else "Radian"
             print(f"⇒ {mode} mode\n")
             continue
+
+        # Integral solver
+        if re.match(r'\\i+nt(?:_|\^|$|\s)', expr):
+            result = solve_multi_integral(expr)
+            if result is not None:
+                display = _format_calc_display(expr)
+                formatted = format_result(result)
+                if isinstance(result, (int, float)) and abs(result - round(result)) >= 1e-12:
+                    frac = to_fraction(result)
+                    if frac:
+                        formatted = frac
+                print(f"⇒ {display} = {formatted}\n")
+                continue
+            print("⇒ Error: Invalid integral expression\n")
+            continue
+
+        # Sum solver
+        if expr.startswith(r'\sum'):
+            result = solve_multi_sum(expr)
+            if result is not None:
+                display = _format_calc_display(expr)
+                formatted = format_result(result)
+                if isinstance(result, (int, float)) and abs(result - round(result)) >= 1e-12:
+                    frac = to_fraction(result)
+                    if frac:
+                        formatted = frac
+                print(f"⇒ {display} = {formatted}\n")
+                continue
+            print("⇒ Error: Invalid sum expression\n")
+            continue
+
+        # Derivative solver
+        m_d = re.match(r'd(?:\^?\d+)?/d[a-zA-Z]', expr)
+        if m_d:
+            result = solve_derivative(expr)
+            if result is not None:
+                formatted = format_result(result)
+                if isinstance(result, (int, float)) and abs(result - round(result)) >= 1e-12:
+                    frac = to_fraction(result)
+                    if frac:
+                        formatted = frac
+                print(f"⇒ {expr} = {formatted}\n")
+                continue
+            # Fall through to normal processing
+
+        # Inequality solver
+        if re.search(r'\\ne|\\geq|\\leq', expr):
+            result = solve_inequality(expr)
+            if result:
+                print(f"⇒ {result}\n")
+                continue
 
         # Equation solving if '=' is present
         if "=" in expr:
