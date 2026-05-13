@@ -208,49 +208,8 @@ def preprocess(expr: str) -> tuple[str, list[str]]:
 
 def evaluate(expr: str) -> float | str:
     """Evaluate a math expression safely."""
-    # Create a safe namespace with math functions
-    safe_dict = {
-        "sin": math.sin,
-        "cos": math.cos,
-        "tan": math.tan,
-        "asin": math.asin,
-        "acos": math.acos,
-        "atan": math.atan,
-        "sqrt": _sqrt,
-        "log": math.log,
-        "log2": math.log2,
-        "log10": math.log10,
-        "exp": math.exp,
-        "ln": math.log,
-        "lg": math.log10,
-        "abs": abs,
-        "ceil": math.ceil,
-        "floor": math.floor,
-        "factorial": math.factorial,
-        "pow": pow,
-        "e": math.e,
-        "tau": math.tau,
-        # Physics & Chemistry constants (exact 2019 SI / CODATA 2018)
-        "g": 9.80665,
-        "c": 299792458,
-        "G": 6.67430e-11,
-        "h": 6.62607015e-34,
-        "k": 1.380649e-23,
-        "NA": 6.02214076e23,
-        "R": 8.31446261815324,
-        "F": 96485.33212331001,
-        "atm": 101325,
-        "Vm": 22.413969545014137,
-        "mu0": 1.25663706212e-6,
-        "eps0": 8.8541878128e-12,
-        "epsilon0": 8.8541878128e-12,
-        "varepsilon0": 8.8541878128e-12,
-        # Imaginary unit
-        "j": 1j,
-    }
-
     try:
-        result = eval(expr, {"__builtins__": {}}, safe_dict)
+        result = eval(expr, {"__builtins__": {}}, _build_safe_dict())
         return result
     except Exception as e:
         return f"Error: {e}"
@@ -260,6 +219,88 @@ def _format_float(x: float | int) -> str:
     """Format a number, using scientific notation for extreme values."""
     s = f"{x:.10g}"
     return "0" if s == "-0" else s
+
+
+_CONSTANT_NAMES = {
+    "e", "g", "c", "h", "k", "j",
+    "sin", "cos", "tan", "asin", "acos", "atan",
+    "sqrt", "log", "log2", "log10", "exp", "ln", "lg",
+    "abs", "ceil", "floor", "factorial", "pow",
+}
+
+def _find_variable(expr: str) -> str | None:
+    letters = set(re.findall(r'(?<![a-zA-Z])[a-z](?![a-zA-Z])', expr))
+    variables = letters - _CONSTANT_NAMES
+    return variables.pop() if len(variables) == 1 else None
+
+
+def _secant(f, guesses=None):
+    if guesses is None:
+        guesses = [0, 1, -1, 2, -2, 5, -5, 10, -10, 100, -100]
+    for g in guesses:
+        x0, x1 = g, g + 0.1 if g == 0 else g * 1.1
+        for _ in range(200):
+            f0, f1 = f(x0), f(x1)
+            if not (math.isfinite(f0) and math.isfinite(f1)):
+                break
+            if abs(f1) < 1e-12:
+                return x1
+            if abs(f1 - f0) < 1e-15:
+                break
+            x2 = x1 - f1 * (x1 - x0) / (f1 - f0)
+            x0, x1 = x1, x2
+    return None
+
+
+def _build_safe_dict(var_name: str | None = None, var_val: float | None = None) -> dict:
+    d = {
+        "sin": math.sin, "cos": math.cos, "tan": math.tan,
+        "asin": math.asin, "acos": math.acos, "atan": math.atan,
+        "sqrt": _sqrt, "log": math.log, "log2": math.log2, "log10": math.log10,
+        "exp": math.exp, "ln": math.log, "lg": math.log10,
+        "abs": abs, "ceil": math.ceil, "floor": math.floor,
+        "factorial": math.factorial, "pow": pow,
+        "e": math.e, "tau": math.tau,
+        "g": 9.80665, "c": 299792458, "G": 6.67430e-11,
+        "h": 6.62607015e-34, "k": 1.380649e-23,
+        "NA": 6.02214076e23, "R": 8.31446261815324, "F": 96485.33212331001,
+        "atm": 101325, "Vm": 22.413969545014137,
+        "mu0": 1.25663706212e-6, "eps0": 8.8541878128e-12,
+        "epsilon0": 8.8541878128e-12, "varepsilon0": 8.8541878128e-12,
+        "j": 1j,
+    }
+    if var_name is not None and var_val is not None:
+        d[var_name] = var_val
+    return d
+
+
+def solve_equation(expr: str) -> str:
+    parts = expr.split("=")
+    if len(parts) != 2:
+        return "Error: Equation must have exactly one '='"
+
+    lhs_raw, rhs_raw = parts[0].strip(), parts[1].strip()
+
+    var = _find_variable(lhs_raw + " " + rhs_raw)
+    if var is None:
+        return "Error: Could not identify a single variable to solve for"
+
+    lhs, _ = preprocess(lhs_raw)
+    rhs, _ = preprocess(rhs_raw)
+
+    def f(val):
+        sd = _build_safe_dict(var, val)
+        try:
+            return eval(lhs, {"__builtins__": {}}, sd) - eval(rhs, {"__builtins__": {}}, sd)
+        except Exception:
+            return float("nan")
+
+    sol = _secant(f)
+    if sol is None:
+        return f"Error: No solution found for '{var}'"
+
+    sol_str = _format_float(sol)
+    return f"{var} = {sol_str}"
 
 
 def format_result(result: float | complex | str) -> str:
@@ -307,6 +348,7 @@ def print_help():
     print("  sin(0)        -> 0")
     print("  2^10          -> 1024")
     print("  2sin(30)      -> uses radians")
+    print("  x^2 = 4       -> solves equation")
     print()
     print("  ^h or help    -> this message")
     print("  ^q or quit    -> exit")
@@ -345,6 +387,12 @@ def main():
         if expr == "yes_j":
             _imag_unit = "j"
             print("⇒ Imaginary unit set to j\n")
+            continue
+
+        # Equation solving if '=' is present
+        if "=" in expr:
+            formatted = solve_equation(expr)
+            print(f"⇒ {formatted}\n")
             continue
 
         # Process and evaluate
