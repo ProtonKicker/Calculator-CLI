@@ -353,9 +353,9 @@ def to_fraction(x: float) -> str | None:
 _INTEGRAL_SEG = re.compile(
     r'\\(?:i+|I+)nt\s*'
     r'(?:'
-    r'   _\s*\{?([^\s}{^_]+)\}?(?:\s*\^\s*\{?([^\s}{^_]+)\}?)?'    # _lower ^upper?
+    r'_\s*\{?([^\s}{^_]+)\}?(?:\s*\^\s*\{?([^\s}{^_]+)\}?)?'    # _lower ^upper?
     r'|'
-    r'   \^\s*\{?([^\s}{^_]+)\}?(?:\s*_\s*\{?([^\s}{^_]+)\}?)?'    # ^upper _lower?
+    r'\^\s*\{?([^\s}{^_]+)\}?(?:\s*_\s*\{?([^\s}{^_]+)\}?)?'    # ^upper _lower?
     r')?'
 )
 
