@@ -64,7 +64,7 @@ Numerical integration using adaptive Simpson's rule:
 \int_0^1 \int_0^2 x*y dy dx → 1
 ```
 
-Supports any nesting depth. Bounds can be braced `{0}` or unbraced `0`. Use `d{var}` to specify the integration variable.
+Supports any nesting depth. Bounds can be braced `{0}` or unbraced `0`. Use `d{var}` to specify the integration variable. Also supports `\iint` (∬) and `\iiint` (∭) notation.
 
 ## Summations
 

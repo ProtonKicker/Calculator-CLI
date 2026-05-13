@@ -351,7 +351,12 @@ def to_fraction(x: float) -> str | None:
 # ── Multi-Integral Solver ─────────────────────────────────────────────────────
 
 _INTEGRAL_SEG = re.compile(
-    r'\\int\s*(?:_\s*\{?([^\s}{^]+)\}?)?\s*(?:\^\s*\{?([^\s}{^]+)\}?)?'
+    r'\\(?:i+|I+)nt\s*'
+    r'(?:'
+    r'   _\s*\{?([^\s}{^_]+)\}?(?:\s*\^\s*\{?([^\s}{^_]+)\}?)?'    # _lower ^upper?
+    r'|'
+    r'   \^\s*\{?([^\s}{^_]+)\}?(?:\s*_\s*\{?([^\s}{^_]+)\}?)?'    # ^upper _lower?
+    r')?'
 )
 
 
@@ -359,7 +364,7 @@ def _parse_multi_integral(expr):
     r"""Parse any number of nested \int_{lower}^{upper} ... d{var} expressions.
     Returns (outer_to_inner_list, integrand_text) or None."""
     expr = expr.strip()
-    if not expr.startswith(r'\int'):
+    if not re.match(r'\\i+nt', expr):
         return None
     int_matches = list(_INTEGRAL_SEG.finditer(expr))
     if not int_matches:
@@ -370,7 +375,12 @@ def _parse_multi_integral(expr):
     last_int_end = int_matches[-1].end()
     first_dvar_start = dvar_matches[0].start()
     integrand = expr[last_int_end:first_dvar_start].strip()
-    ints = [(m.group(1), m.group(2)) for m in int_matches]
+    ints = []
+    for m in int_matches:
+        if m.group(1) is not None:
+            ints.append((m.group(1), m.group(2)))
+        else:
+            ints.append((m.group(4), m.group(3)))
     dvars = [m.group(1) for m in dvar_matches]
     paired = [
         (lower, upper, dvar)
@@ -385,7 +395,7 @@ def _numerical_integrate(f, a, b, depth=0):
         return 0.0
     if a > b:
         return -_numerical_integrate(f, b, a, depth)
-    n = max(8, 100 // (depth + 1))
+    n = max(8, 150 // (depth + 1))
     if n % 2:
         n += 1
     h = (b - a) / n
@@ -450,6 +460,8 @@ def solve_multi_integral(expr):
         return None
     if isinstance(result, (int, float)) and math.isinf(result):
         return None
+    if isinstance(result, (int, float)) and abs(result - round(result)) < 5e-7:
+        return round(result)
     return result
 
 
@@ -512,6 +524,8 @@ def solve_multi_sum(expr):
         return None
     if isinstance(result, (int, float)) and math.isinf(result):
         return None
+    if isinstance(result, (int, float)) and abs(result - round(result)) < 5e-7:
+        return round(result)
     return result
 
 
@@ -525,10 +539,21 @@ def _numerical_derivative(f, x, order=1):
     if order == 0:
         return f(x)
     if order == 1:
-        h = 1e-8 * max(1.0, abs(x))
+        h = 1e-5 * max(1.0, abs(x))
         return (f(x + h) - f(x - h)) / (2 * h)
+    if order == 2:
+        h = 1e-4 * max(1.0, abs(x))
+        return (f(x + h) - 2 * f(x) + f(x - h)) / (h * h)
+    if order == 3:
+        h = 1e-4 * max(1.0, abs(x))
+        h2 = 2 * h
+        return (f(x + h2) - 2 * f(x + h) + 2 * f(x - h) - f(x - h2)) / (2 * h ** 3)
+    if order == 4:
+        h = 1e-4 * max(1.0, abs(x))
+        h2 = 2 * h
+        return (f(x + h2) - 4 * f(x + h) + 6 * f(x) - 4 * f(x - h) + f(x - h2)) / (h ** 4)
     f_prev = lambda val: _numerical_derivative(f, val, order - 1)
-    h = 1e-6 * max(1.0, abs(x))
+    h = 1e-4 * max(1.0, abs(x))
     return (f_prev(x + h) - f_prev(x - h)) / (2 * h)
 
 
@@ -565,6 +590,8 @@ def solve_derivative(expr):
         deriv = _numerical_derivative(f, x0, order)
         if abs(deriv) < 1e-12:
             deriv = 0.0
+        if isinstance(deriv, (int, float)) and abs(deriv - round(deriv)) < 5e-7:
+            deriv = round(deriv)
         if math.isnan(deriv) or math.isinf(deriv):
             return None
         return deriv
@@ -575,7 +602,9 @@ def solve_derivative(expr):
 # ── Display formatter ─────────────────────────────────────────────────────────
 
 def _format_calc_display(expr):
-    return expr.replace(r'\int', '∫').replace(r'\sum', '∑')
+    expr = expr.replace(r'\iiiint', '∬∬').replace(r'\iiint', '∭').replace(r'\iint', '∬')
+    expr = expr.replace(r'\int', '∫')
+    return expr.replace(r'\sum', '∑')
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -917,11 +946,15 @@ def main():
             continue
 
         # Integral solver
-        if expr.startswith(r'\int'):
+        if re.match(r'\\i+nt(?:_|\^|$|\s)', expr):
             result = solve_multi_integral(expr)
             if result is not None:
                 display = _format_calc_display(expr)
                 formatted = format_result(result)
+                if isinstance(result, (int, float)) and abs(result - round(result)) >= 1e-12:
+                    frac = to_fraction(result)
+                    if frac:
+                        formatted = frac
                 print(f"⇒ {display} = {formatted}\n")
                 continue
             print("⇒ Error: Invalid integral expression\n")
@@ -933,6 +966,10 @@ def main():
             if result is not None:
                 display = _format_calc_display(expr)
                 formatted = format_result(result)
+                if isinstance(result, (int, float)) and abs(result - round(result)) >= 1e-12:
+                    frac = to_fraction(result)
+                    if frac:
+                        formatted = frac
                 print(f"⇒ {display} = {formatted}\n")
                 continue
             print("⇒ Error: Invalid sum expression\n")
@@ -944,6 +981,10 @@ def main():
             result = solve_derivative(expr)
             if result is not None:
                 formatted = format_result(result)
+                if isinstance(result, (int, float)) and abs(result - round(result)) >= 1e-12:
+                    frac = to_fraction(result)
+                    if frac:
+                        formatted = frac
                 print(f"⇒ {expr} = {formatted}\n")
                 continue
             # Fall through to normal processing
