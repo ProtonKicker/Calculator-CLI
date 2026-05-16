@@ -1008,7 +1008,10 @@ def print_help():
 def main():
     global _imag_unit, _show_imag_roots, _deg_mode
     print("🔢 Scientific Calculator CLI")
-    print("Type ^h for help. Type ^q to quit.\n")
+    print("Type ^h for help. Type ^q to quit.")
+    angle = "Degree" if _deg_mode else "Radian"
+    roots = "on" if _show_imag_roots else "off"
+    print(f"  angle: {angle}  |  imaginary unit: {_imag_unit}  |  imaginary roots: {roots}\n")
 
     while True:
         try:
