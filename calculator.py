@@ -678,6 +678,8 @@ def evaluate(expr: str) -> float | str:
 
 def _format_float(x: float | int) -> str:
     """Format a number, using scientific notation for extreme values."""
+    if abs(x) < 1e-12:
+        return "0"
     s = f"{x:.10g}"
     return "0" if s == "-0" else s
 
@@ -773,8 +775,7 @@ def _find_roots(f):
                     continue
             a = b
 
-    roots.sort(key=lambda r: (r.real if isinstance(r, complex) else r,
-                               abs(r.imag) if isinstance(r, complex) else 0))
+    roots.sort(key=lambda r: abs(complex(r.real, r.imag) if isinstance(r, complex) else r))
     return roots
 
 
